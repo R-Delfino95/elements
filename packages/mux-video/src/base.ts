@@ -1,5 +1,7 @@
 import {
+  clearMuxDataCookies,
   initialize,
+  reinitMuxData,
   teardown,
   generatePlayerInitTime,
   MuxMediaProps,
@@ -997,14 +999,16 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
       case Attributes.DISABLE_COOKIES: {
         if (newValue == null || newValue !== oldValue) {
           const disabled = this.disableCookies;
+          // Clearing the cookie isn't enough: mux-embed latched the old value when the monitor
+          // was created, so it would keep writing (or keep not writing) regardless. Re-attach
+          // Mux Data to pick up the new value. Unlike disable-tracking, this doesn't reload the media.
+          // Do this before clearing the cookie: tearing down the old monitor flushes a final
+          // beacon, which would re-write the cookie under the old value.
+          if (this.#core) {
+            reinitMuxData(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
+          }
           if (disabled) {
-            document.cookie.split(';').forEach((c) => {
-              if (c.trim().startsWith('muxData')) {
-                document.cookie = c
-                  .replace(/^ +/, '')
-                  .replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
-              }
-            });
+            clearMuxDataCookies();
           }
         }
         break;
