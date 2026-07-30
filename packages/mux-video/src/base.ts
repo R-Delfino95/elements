@@ -886,7 +886,7 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
 
   load() {
     initialize(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
-    // The value Mux Data was just set up with. See the `disable-cookies` attribute handler.
+    // What Mux Data was just set up with. See the `disable-cookies` handler.
     this.#appliedDisableCookies = this.disableCookies;
   }
 
@@ -1002,21 +1002,17 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
       case Attributes.DISABLE_COOKIES: {
         if (newValue == null || newValue !== oldValue) {
           const disabled = this.disableCookies;
-          // Compare against the value Mux Data is actually running with, not against the
-          // attribute's previous string. Upgrading a server-rendered `<mux-video disable-cookies>`
-          // looks exactly like a revoke — both arrive with oldValue == null — and the monitor has
-          // already been created, from that same attribute, with the same value. Re-applying it
-          // would be a no-op, but clearing the cookie would drop a returning viewer's
-          // mux_viewer_id right before the client resolves consent and grants it, leaving Mux Data
-          // to mint a new one on every page load.
+          // Compare against what Mux Data is running with, not against oldValue: upgrading a
+          // server-rendered `<mux-video disable-cookies>` is indistinguishable from a revoke, and
+          // clearing there would drop a returning viewer's mux_viewer_id moments before the client
+          // resolves consent and grants it.
           if (!this.#core || this.#appliedDisableCookies === disabled) break;
           this.#appliedDisableCookies = disabled;
-          // Clearing the cookie isn't enough: mux-embed latched the old value when the monitor
-          // was created, so it would keep writing (or keep not writing) regardless. Re-attach
-          // Mux Data to pick up the new value. Unlike disable-tracking, this doesn't reload the media.
+          // Clearing the cookie isn't enough on its own: mux-embed latched the old value, so it
+          // would keep writing (or keep not writing) regardless.
           reinitMuxData(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
-          // Clear after re-attaching: tearing down the old monitor flushes a final beacon, which
-          // would re-write the cookie under the old value.
+          // Clear after re-attaching: tearing down the old monitor flushes a beacon that would
+          // rewrite the cookie under the old value.
           if (disabled) {
             clearMuxDataCookies();
           }

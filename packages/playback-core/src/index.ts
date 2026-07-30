@@ -726,9 +726,7 @@ export const initialize = (props: Partial<MuxMediaPropsInternal>, mediaEl: HTMLM
   return newCore;
 };
 
-/**
- * Expires any `muxData` cookie mux-embed has written for this origin.
- */
+/** Expires any `muxData` cookie mux-embed has written for this origin. */
 export const clearMuxDataCookies = () => {
   document.cookie.split(';').forEach((c) => {
     if (c.trim().startsWith('muxData')) {
@@ -740,12 +738,10 @@ export const clearMuxDataCookies = () => {
 const pendingMuxDataInit = new WeakMap<HTMLMediaElement, Promise<void>>();
 
 /**
- * Re-attaches the Mux Data monitor to an already loaded media element, leaving the media
- * (and the hls.js instance, if any) alone.
- *
- * mux-embed latches options like `disableCookies` when the monitor is created and provides
- * no setter for them, so the only way to apply a change is to re-create the monitor. Note
- * that this ends the in-flight view and starts a new one.
+ * Re-attaches the Mux Data monitor to an already loaded media element, leaving the media (and the
+ * hls.js instance, if any) alone. mux-embed latches options like `disableCookies` when the monitor
+ * is created and provides no setter for them, so re-creating it is the only way to apply a change.
+ * Ends the in-flight view and starts a new one.
  */
 export const reinitMuxData = (
   props: Partial<MuxMediaPropsInternal>,
@@ -754,19 +750,14 @@ export const reinitMuxData = (
 ) => {
   if (!mediaEl) return;
 
-  // Tear down synchronously, so nothing keeps being tracked (or written to the cookie) under the
-  // old options. destroy() flushes a final `viewend` and detaches its own hls.js listeners, so
-  // don't call removeHLSJS() first.
   if (mediaEl.mux) {
+    // destroy() flushes a final `viewend` and then detaches its own hls.js listeners.
     if (!mediaEl.mux.deleted) mediaEl.mux.destroy();
-    // mux-embed leaves a `deleted: true` tombstone in place of the monitor. Drop it, otherwise
-    // the next monitor() warns about replacing existing listeners.
+    // Drop mux-embed's `deleted: true` tombstone, otherwise the next monitor() warns.
     delete mediaEl.mux;
   }
 
-  // Monitor on a microtask instead: a burst of changes in the same tick (a consent library firing
-  // several callbacks, an element sprouting attributes) then yields a single monitor, created once
-  // every prop has settled.
+  // Monitor on a microtask, so a burst of changes in the same tick yields a single monitor.
   if (pendingMuxDataInit.has(mediaEl)) return;
 
   pendingMuxDataInit.set(
@@ -778,8 +769,7 @@ export const reinitMuxData = (
       // Bail if the media was torn down, or something else re-monitored it, while we waited.
       if (!state || (mediaEl.mux && !mediaEl.mux.deleted)) return;
 
-      // The hls.js instance outlives the monitor, so hand the current one to the new monitor:
-      // it's where mux-embed gets rendition, request and bandwidth data from.
+      // hls.js outlives the monitor and is where rendition, request and bandwidth data come from.
       const hls = (state.coreReference ?? core)?.engine;
       setupMux(props, mediaEl, hls as HlsInterface | undefined);
     })
