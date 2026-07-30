@@ -77,10 +77,6 @@ const MuxVideo = React.forwardRef<HTMLVideoElement | undefined, Partial<Props>>(
     if (mediaEl) {
       playbackCoreRef.current = initialize(propsWithState, mediaEl, playbackCoreRef.current);
       appliedDisableCookiesRef.current = props.disableCookies;
-      // Match <mux-video>, which clears the cookie when it initializes with cookies disabled.
-      if (props.disableCookies) {
-        clearMuxDataCookies();
-      }
     }
 
     return () => {
@@ -93,6 +89,9 @@ const MuxVideo = React.forwardRef<HTMLVideoElement | undefined, Partial<Props>>(
   // mux-embed latches `disableCookies` when the monitor is created and offers no setter, so the
   // only way to apply a change is to re-create the monitor. Unlike a src change this leaves the
   // media alone, so playback isn't interrupted.
+  // Only a change is handled, never the mounted value: on a server-rendered page the first client
+  // render can carry `disableCookies` simply because consent isn't known yet, and clearing the
+  // cookie there would drop a returning viewer's mux_viewer_id. Same reasoning as <mux-video>.
   useEffect(() => {
     if (appliedDisableCookiesRef.current === props.disableCookies) return;
     appliedDisableCookiesRef.current = props.disableCookies;

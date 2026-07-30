@@ -80,6 +80,11 @@ const usePlayer = (
   useObjectPropEffect('playbackId', playbackId, ref);
   useObjectPropEffect('playbackRates', playbackRates, ref);
   useObjectPropEffect('metadata', metadata, ref);
+  // Also applied as a property, on top of the `disable-cookies` attribute below, because React
+  // never reconciles attributes during hydration — it warns that the mismatch "won't be patched
+  // up" and leaves the server's value in the DOM. A server-rendered page can't read consent, so it
+  // has to emit the cookie-less state; without this the player would stay stuck in it for good.
+  useObjectPropEffect('disableCookies', props.disableCookies ?? false, ref);
   useObjectPropEffect('extraSourceParams', extraSourceParams, ref);
   useObjectPropEffect('_hlsConfig', _hlsConfig, ref);
   useObjectPropEffect('themeProps', themeProps, ref);
