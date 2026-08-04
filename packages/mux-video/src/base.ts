@@ -1,7 +1,6 @@
 import {
-  clearMuxDataCookies,
+  applyDisableCookies,
   initialize,
-  reinitMuxData,
   teardown,
   generatePlayerInitTime,
   MuxMediaProps,
@@ -111,7 +110,6 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
   }
 
   #loadRequested?: Promise<void> | null;
-  #appliedDisableCookies?: boolean;
   #defaultPlayerInitTime: number | undefined;
   #metadata: Metadata = {};
   #tokens: Tokens = {};
@@ -886,8 +884,6 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
 
   load() {
     initialize(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
-    // What Mux Data was just set up with. See the `disable-cookies` handler.
-    this.#appliedDisableCookies = this.disableCookies;
   }
 
   unload() {
@@ -1001,21 +997,10 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
       }
       case Attributes.DISABLE_COOKIES: {
         if (newValue == null || newValue !== oldValue) {
-          const disabled = this.disableCookies;
-          // Compare against what Mux Data is running with, not against oldValue: upgrading a
-          // server-rendered `<mux-video disable-cookies>` is indistinguishable from a revoke, and
-          // clearing there would drop a returning viewer's mux_viewer_id moments before the client
-          // resolves consent and grants it.
-          if (!this.#core || this.#appliedDisableCookies === disabled) break;
-          this.#appliedDisableCookies = disabled;
-          // Clearing the cookie isn't enough on its own: mux-embed latched the old value, so it
-          // would keep writing (or keep not writing) regardless.
-          reinitMuxData(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
-          // Clear after re-attaching: tearing down the old monitor flushes a beacon that would
-          // rewrite the cookie under the old value.
-          if (disabled) {
-            clearMuxDataCookies();
-          }
+          // mux-embed latches the value when the monitor is created and has no setter for it, so
+          // Mux Data has to be re-attached to pick up a change. Unlike disable-tracking, that
+          // doesn't reload the media.
+          applyDisableCookies(this as Partial<MuxMediaProps>, this.nativeEl, this.#core);
         }
         break;
       }

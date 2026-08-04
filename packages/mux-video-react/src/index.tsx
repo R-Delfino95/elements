@@ -5,9 +5,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   allMediaTypes,
-  clearMuxDataCookies,
+  applyDisableCookies,
   initialize,
-  reinitMuxData,
   teardown,
   MuxMediaProps,
   StreamTypes,
@@ -67,15 +66,11 @@ const MuxVideo = React.forwardRef<HTMLVideoElement | undefined, Partial<Props>>(
     autoplay: autoPlay,
   });
 
-  // The value `disableCookies` was last applied with.
-  const appliedDisableCookiesRef = useRef(props.disableCookies);
-
   useEffect(() => {
     // mediaEl required caching here so the ref was not null in the unmount callback.
     let mediaEl = mediaElRef.current;
     if (mediaEl) {
       playbackCoreRef.current = initialize(getPropsWithState(), mediaEl, playbackCoreRef.current);
-      appliedDisableCookiesRef.current = props.disableCookies;
     }
 
     return () => {
@@ -85,22 +80,10 @@ const MuxVideo = React.forwardRef<HTMLVideoElement | undefined, Partial<Props>>(
     };
   }, [src]);
 
-  // Re-create the monitor, since mux-embed latches `disableCookies` and offers no setter. Only on a
-  // change, never on the mounted value: the first client render of a server-rendered page can carry
-  // `disableCookies` just because consent isn't known yet, and clearing the cookie there would drop
-  // a returning viewer's mux_viewer_id. Same reasoning as <mux-video>.
+  // mux-embed latches `disableCookies` when the monitor is created and offers no setter, so Mux Data
+  // has to be re-attached to pick up a change. Unlike a src change, that leaves the media alone.
   useEffect(() => {
-    if (appliedDisableCookiesRef.current === props.disableCookies) return;
-    appliedDisableCookiesRef.current = props.disableCookies;
-
-    const mediaEl = mediaElRef.current;
-    if (!mediaEl || !playbackCoreRef.current) return;
-
-    // Clear after re-attaching: tearing down the old monitor flushes a beacon that rewrites the cookie.
-    reinitMuxData(getPropsWithState(), mediaEl, playbackCoreRef.current);
-    if (props.disableCookies) {
-      clearMuxDataCookies();
-    }
+    applyDisableCookies(getPropsWithState(), mediaElRef.current, playbackCoreRef.current);
   }, [props.disableCookies]);
 
   useEffect(() => {

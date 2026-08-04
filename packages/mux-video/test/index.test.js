@@ -511,3 +511,256 @@ describe('<mux-video>', () => {
     });
   });
 });
+
+describe('<mux-video> disable-cookies', () => {
+  const PLAYBACK_ID = 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe';
+  const VIEWER_ID = 'test-viewer-id';
+
+  const readMuxDataCookie = () => document.cookie.split('; ').find((c) => c.startsWith('muxData')) ?? null;
+
+  const plantMuxDataCookie = () => {
+    document.cookie = `muxData==undefined&mux_viewer_id=${VIEWER_ID}&msn=0.5&sid=s&sst=1&sex=9999999999999;path=/;max-age=3600`;
+  };
+
+  const forgetMuxDataCookie = () => {
+    document.cookie = `muxData=;expires=${new Date(0).toUTCString()};path=/`;
+  };
+
+  /**
+   * Stand-in for mux-embed that records the options each monitor was created with, so a re-attached
+   * monitor can be told from a re-used one without sending beacons.
+   */
+  const createMuxDataSDKSpy = ({ flushOnDestroy = false, deferFlush = false } = {}) => {
+    const monitors = [];
+    // Stands in for the final beacon mux-embed sends from destroy(), which refreshes the cookie
+    // using the options the monitor was created with.
+    const flush = (options) => {
+      if (!flushOnDestroy || options.disableCookies) return;
+      const write = () => {
+        document.cookie = `muxData==undefined&sid=s&sst=1&sex=9999999999999;path=/;max-age=3600`;
+      };
+      if (deferFlush) Promise.resolve().then(write);
+      else write();
+    };
+    return {
+      monitors,
+      monitor(mediaEl, options) {
+        const record = { options, destroyed: false };
+        monitors.push(record);
+        mediaEl.mux = {
+          deleted: false,
+          emit() {},
+          addHLSJS() {},
+          removeHLSJS() {},
+          destroy() {
+            record.destroyed = true;
+            this.deleted = true;
+            flush(options);
+          },
+        };
+      },
+    };
+  };
+
+  /** Loads a player with the Mux Data SDK spied on from the very first monitor. */
+  const fixtureWithSpy = async (attrs = '', spyOptions) => {
+    const player = await fixture(`<mux-video muted ${attrs}></mux-video>`);
+    const muxDataSDK = createMuxDataSDKSpy(spyOptions);
+    player.muxDataSDK = muxDataSDK;
+    // Setting the playback id is what triggers the first load, and with it the first monitor.
+    player.playbackId = PLAYBACK_ID;
+    await aTimeout(50);
+    return { player, muxDataSDK };
+  };
+
+  afterEach(() => {
+    forgetMuxDataCookie();
+  });
+
+  it('re-attaches Mux Data when disable-cookies is turned on', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy();
+    assert.equal(muxDataSDK.monitors.length, 1, 'monitored once on load');
+    assert.notOk(muxDataSDK.monitors[0].options.disableCookies, 'cookies enabled to begin with');
+
+    player.disableCookies = true;
+    await aTimeout(0);
+
+    assert.equal(muxDataSDK.monitors.length, 2, 'monitor was re-created');
+    assert.isTrue(muxDataSDK.monitors[0].destroyed, 'the previous monitor was destroyed');
+    assert.isTrue(muxDataSDK.monitors[1].options.disableCookies, 'the new monitor has cookies disabled');
+  });
+
+  it('re-attaches Mux Data when disable-cookies is turned off', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy('disable-cookies');
+    assert.isTrue(muxDataSDK.monitors[0].options.disableCookies, 'cookies disabled to begin with');
+
+    player.disableCookies = false;
+    await aTimeout(0);
+
+    assert.equal(muxDataSDK.monitors.length, 2, 'monitor was re-created');
+    assert.notOk(muxDataSDK.monitors[1].options.disableCookies, 'the new monitor has cookies enabled');
+  });
+
+  it('does not re-attach Mux Data when the same value is re-applied', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy();
+
+    player.setAttribute('disable-cookies', '');
+    await aTimeout(0);
+    assert.equal(muxDataSDK.monitors.length, 2, 'the change was applied');
+
+    // attributeChangedCallback fires even when the value is identical.
+    player.setAttribute('disable-cookies', '');
+    await aTimeout(0);
+    assert.equal(muxDataSDK.monitors.length, 2, 'no monitor for a redundant re-apply');
+  });
+
+  it('coalesces several changes in the same tick into a single monitor', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy();
+
+    player.disableCookies = true;
+    player.disableCookies = false;
+    player.disableCookies = true;
+    await aTimeout(0);
+
+    assert.equal(muxDataSDK.monitors.length, 2, 'one monitor for the whole burst');
+    assert.isTrue(muxDataSDK.monitors[1].options.disableCookies, 'created with the settled value');
+  });
+
+  it('leaves Mux Data on the settled value when a change is reverted', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy();
+
+    // Same tick: the value the monitor is created with is read when it is created, not when the
+    // change came in, so a reverted change can't leave Mux Data out of sync with the attribute.
+    player.disableCookies = true;
+    player.disableCookies = false;
+    await aTimeout(0);
+
+    assert.notOk(muxDataSDK.monitors[muxDataSDK.monitors.length - 1].options.disableCookies);
+
+    // ...and the next real change is still picked up.
+    player.disableCookies = true;
+    await aTimeout(0);
+
+    assert.isTrue(muxDataSDK.monitors[muxDataSDK.monitors.length - 1].options.disableCookies);
+  });
+
+  it('applies a change and its revert in separate ticks', async () => {
+    const { player, muxDataSDK } = await fixtureWithSpy();
+
+    player.disableCookies = true;
+    await aTimeout(0);
+    player.disableCookies = false;
+    await aTimeout(0);
+
+    assert.equal(muxDataSDK.monitors.length, 3, 'monitored again for each change');
+    assert.isTrue(muxDataSDK.monitors[1].options.disableCookies);
+    assert.notOk(muxDataSDK.monitors[2].options.disableCookies);
+  });
+
+  it('does not reload the media when disable-cookies changes', async () => {
+    const { player } = await fixtureWithSpy();
+
+    const mediaEvents = [];
+    ['emptied', 'loadstart', 'abort'].forEach((type) => {
+      player.addEventListener(type, () => mediaEvents.push(type));
+    });
+
+    player.disableCookies = true;
+    await aTimeout(50);
+
+    assert.deepEqual(mediaEvents, [], 'the media element was left alone');
+  });
+
+  it('clears the muxData cookie when cookies are disabled at runtime', async () => {
+    const { player } = await fixtureWithSpy();
+    plantMuxDataCookie();
+
+    player.disableCookies = true;
+    await aTimeout(0);
+
+    assert.equal(readMuxDataCookie(), null, 'the cookie was cleared');
+  });
+
+  it('keeps an existing muxData cookie when it initializes with disable-cookies', async () => {
+    // A server-rendered page can't read consent, so it always emits the cookie-less state. Clearing
+    // there would drop a returning viewer's mux_viewer_id before consent can be granted.
+    plantMuxDataCookie();
+
+    const { muxDataSDK } = await fixtureWithSpy('disable-cookies');
+
+    assert.include(readMuxDataCookie(), VIEWER_ID, 'the cookie was left alone');
+    assert.equal(muxDataSDK.monitors.length, 1, 'no re-attach was needed');
+    assert.isTrue(muxDataSDK.monitors[0].options.disableCookies, 'and cookies are disabled');
+  });
+
+  it('clears the cookie even when a monitor flushes its final beacon asynchronously', async () => {
+    const { player } = await fixtureWithSpy('', { flushOnDestroy: true, deferFlush: true });
+    plantMuxDataCookie();
+
+    player.disableCookies = true;
+    await aTimeout(0);
+
+    assert.equal(readMuxDataCookie(), null, 'the flush cannot outlive the clear');
+  });
+
+  it('clears the shared cookie when several players are disabled at once', async () => {
+    // There is one cookie for every player on the page, and each teardown flush rewrites it, so the
+    // clears have to expire the cookie unconditionally instead of only what they just read.
+    const players = [];
+    for (let i = 0; i < 3; i += 1) {
+      players.push(await fixtureWithSpy('', { flushOnDestroy: true }));
+    }
+    plantMuxDataCookie();
+
+    players.forEach(({ player }) => {
+      player.disableCookies = true;
+    });
+    await aTimeout(0);
+
+    assert.equal(readMuxDataCookie(), null, 'no player is left holding the cookie');
+    players.forEach(({ muxDataSDK }, i) => {
+      assert.isTrue(muxDataSDK.monitors[1]?.options.disableCookies, `player ${i} re-attached with cookies off`);
+    });
+  });
+
+  it('clears the cookie with several players disabled in the same tick', async () => {
+    // Every player flushes a final beacon that rewrites the shared cookie, so the flushes and the
+    // clears must not interleave: one player writing after another has cleared would leave the
+    // cookie behind (session fields only, no mux_viewer_id).
+    const players = [];
+    for (let i = 0; i < 3; i++) {
+      players.push(await fixtureWithSpy('', { flushOnDestroy: true }));
+    }
+    plantMuxDataCookie();
+
+    players.forEach(({ player }) => {
+      player.disableCookies = true;
+    });
+    await aTimeout(0);
+
+    assert.equal(readMuxDataCookie(), null, 'no player wrote the cookie back after the clears');
+  });
+
+  it('keeps chapters and their text track across the change', async function () {
+    this.timeout(10000);
+
+    const player = await fixture(`<mux-video
+      playback-id="${PLAYBACK_ID}"
+      preload="metadata"
+      prefer-playback="mse"
+      muted
+    ></mux-video>`);
+    await oneEvent(player, 'loadstart');
+    await player.addChapters([
+      { startTime: 0, endTime: 5, value: 'One' },
+      { startTime: 5, endTime: 10, value: 'Two' },
+    ]);
+    const chaptersTrack = Array.from(player.textTracks).find((track) => track.kind === 'chapters');
+
+    player.disableCookies = true;
+    await aTimeout(50);
+
+    assert.equal(player.chapters.length, 2, 'chapters survived');
+    assert.isTrue(Array.from(player.textTracks).includes(chaptersTrack), 'and so did their text track');
+  });
+});
