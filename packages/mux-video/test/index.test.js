@@ -750,7 +750,12 @@ describe('<mux-video> disable-cookies', () => {
       prefer-playback="mse"
       muted
     ></mux-video>`);
-    await oneEvent(player, 'loadstart');
+    // playback-core creates the chapters track on loadstart, so waiting for the track avoids racing
+    // the event, which can fire before the fixture is even handed back.
+    await waitUntil(
+      () => Array.from(player.textTracks).some((track) => track.kind === 'chapters'),
+      'the chapters text track should be created'
+    );
     await player.addChapters([
       { startTime: 0, endTime: 5, value: 'One' },
       { startTime: 5, endTime: 10, value: 'Two' },
