@@ -20,6 +20,136 @@ describe('<mux-video>', () => {
     assert.equal(player.debug, false, 'debug is off');
   });
 
+  describe('src derivation', () => {
+    it('re-derives src from attributes when it owns the playback id', async function () {
+      const player = await fixture(`<mux-video
+        playback-id="DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"
+        stream-type="on-demand"
+        muted
+      ></mux-video>`);
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(new URL(player.src).hostname, 'stream.example.com', 'src follows custom-domain');
+
+      player.setAttribute('asset-start-time', '10');
+      assert.equal(new URL(player.src).searchParams.get('asset_start_time'), '10', 'src follows asset-start-time');
+    });
+
+    it('leaves an externally set src alone, preserving its search params', async function () {
+      // Without a `playback-id`, `src` is the source of truth. Re-deriving it would round-trip
+      // through `toPlaybackIdFromSrc()`, which drops the query string — the params below only
+      // exist on the src, so a recompute would silently discard them. This is how mux-player
+      // uses <mux-video>: it computes the full src itself and forwards `custom-domain` too.
+      const src =
+        'https://stream.mux.com/DS00Spx1CV902MCtPj5WknGlR102V5HFkDe.m3u8?redundant_streams=true&asset_start_time=10';
+      const player = await fixture(`<mux-video
+        custom-domain="mux.com"
+        src="${src}"
+        stream-type="on-demand"
+        muted
+      ></mux-video>`);
+
+      assert.equal(player.src, src, 'src survives initial upgrade');
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(player.src, src, 'src survives a custom-domain change');
+    });
+
+    it('leaves a non-Mux src alone', async function () {
+      // `toPlaybackIdFromSrc()` yields undefined for any src outside `https://stream.`, so
+      // `toMuxVideoURL()` returns undefined and the recompute used to blow the src away entirely.
+      const src = 'https://my-cdn.example.com/some/playlist.m3u8?sig=abc123';
+      const player = await fixture(`<mux-video src="${src}" stream-type="on-demand" muted></mux-video>`);
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(player.src, src, 'src survives a custom-domain change');
+    });
+
+    it('keeps params carried on a parameterized playback-id', async function () {
+      // A playback id may carry its own query (`toPlaybackIdParts` splits it back off), so those
+      // params have to survive a recompute even though no attribute holds them.
+      const player = await fixture(`<mux-video
+        playback-id="DS00Spx1CV902MCtPj5WknGlR102V5HFkDe?foo=bar"
+        muted
+      ></mux-video>`);
+
+      assert.equal(new URL(player.src).searchParams.get('foo'), 'bar', 'param present initially');
+
+      player.setAttribute('custom-domain', 'example.com');
+      const url = new URL(player.src);
+      assert.equal(url.hostname, 'stream.example.com', 'domain updated');
+      assert.equal(url.searchParams.get('foo'), 'bar', 'param survives the recompute');
+    });
+
+    it('drops non-token params when a playback-token is present', async function () {
+      // Intentional: these params only work on public playback ids, so with a signed URL they
+      // have to be baked into the token instead. Pinned so the guard above isn't mistaken for a
+      // promise that every param always survives.
+      const player = await fixture(`<mux-video
+        playback-id="DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"
+        asset-start-time="10"
+        playback-token="TOKEN"
+        muted
+      ></mux-video>`);
+
+      player.setAttribute('custom-domain', 'example.com');
+      const url = new URL(player.src);
+      assert.equal(url.hostname, 'stream.example.com', 'domain still updates');
+      assert.deepEqual([...url.searchParams.keys()], ['token'], 'only the token remains');
+    });
+
+    it('takes over src derivation once a playback-id is added', async function () {
+      const player = await fixture(`<mux-video
+        src="https://stream.mux.com/OTHERID.m3u8?redundant_streams=true"
+        custom-domain="mux.com"
+        muted
+      ></mux-video>`);
+
+      player.setAttribute('playback-id', 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe');
+      assert.equal(
+        player.src,
+        'https://stream.mux.com/DS00Spx1CV902MCtPj5WknGlR102V5HFkDe.m3u8',
+        'an explicit playback-id wins over the previous src'
+      );
+    });
+
+    it('leaves src alone when playback-id is removed', async function () {
+      const player = await fixture(`<mux-video
+        playback-id="DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"
+        custom-domain="example.com"
+        muted
+      ></mux-video>`);
+      const derived = player.src;
+
+      player.removeAttribute('playback-id');
+      assert.equal(player.src, derived, 'removing playback-id is a no-op on src');
+    });
+
+    it('falls back to the default domain when custom-domain is removed', async function () {
+      const player = await fixture(`<mux-video
+        playback-id="DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"
+        custom-domain="example.com"
+        muted
+      ></mux-video>`);
+
+      player.removeAttribute('custom-domain');
+      assert.equal(new URL(player.src).hostname, 'stream.mux.com', 'src falls back to stream.mux.com');
+    });
+
+    it('clears src for a present-but-empty playback-id', async function () {
+      // Long-standing behavior, not introduced by the guard: the guard keys on the attribute
+      // being *present*, and an empty playback id yields no URL at all. `removeAttribute` is the
+      // non-destructive way to step back from owning the src.
+      const player = await fixture(`<mux-video
+        playback-id=""
+        src="https://stream.mux.com/DS00Spx1CV902MCtPj5WknGlR102V5HFkDe.m3u8?redundant_streams=true"
+        muted
+      ></mux-video>`);
+
+      assert.isNull(player.src, 'an empty playback-id clears the src');
+    });
+  });
+
   it('dispatches events properly', async function () {
     this.timeout(10000);
 
