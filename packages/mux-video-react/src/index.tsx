@@ -124,6 +124,7 @@ MuxVideo.propTypes = {
   initialBandwidthEstimateKbps: PropTypes.number,
   initialEstimateSegments: PropTypes.number,
   minPreloadSegments: PropTypes.number,
+  maxReconnectRetries: PropTypes.number,
   streamType: PropTypes.oneOf(Object.values(StreamTypes)),
   targetLiveWindow: PropTypes.number,
   tokens: PropTypes.object,
