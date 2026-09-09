@@ -635,6 +635,99 @@ describe('<mux-player>', () => {
     );
   });
 
+  it('should keep src-derived search params when custom-domain is set', async function () {
+    const player = await fixture(`<mux-player
+      stream-type="on-demand"
+      custom-domain="mux.com"
+      extra-source-params="foo=str&bar=true&baz=1"
+      asset-start-time="10"
+      asset-end-time="20"
+      playback-id="r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA"
+    ></mux-player>`);
+    const muxVideo = player.media;
+
+    // `custom-domain` is the only src input mux-player forwards to <mux-video>, so it used to
+    // trigger a src recompute on an element that has none of the other inputs, silently dropping
+    // every search param. `cast-src` is written from the same expression but never recomputed,
+    // so it doubles as an oracle for what `src` should be.
+    assert.equal(muxVideo.src, muxVideo.getAttribute('cast-src'), 'src should match cast-src');
+
+    const actualSrcUrl = new URL(muxVideo.src);
+    const expectedSrcUrl = new URL(
+      'https://stream.mux.com/r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA.m3u8?foo=str&bar=true&baz=1&asset_start_time=10&asset_end_time=20'
+    );
+    assert.equal(actualSrcUrl.searchParams.size, expectedSrcUrl.searchParams.size);
+    expectedSrcUrl.searchParams.forEach((value, key) => {
+      assert.equal(actualSrcUrl.searchParams.get(key), value, `should preserve ${key}`);
+    });
+  });
+
+  it('should keep the default redundant_streams param when custom-domain is set', async function () {
+    const player = await fixture(`<mux-player
+      stream-type="on-demand"
+      custom-domain="mux.com"
+      playback-id="r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA"
+    ></mux-player>`);
+
+    assert.equal(
+      new URL(player.media.src).searchParams.get('redundant_streams'),
+      'true',
+      'should preserve mux-players default extraSourceParams'
+    );
+  });
+
+  it('should keep search params when custom-domain changes at runtime', async function () {
+    const player = await fixture(`<mux-player
+      stream-type="on-demand"
+      extra-source-params="foo=str"
+      playback-id="r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA"
+    ></mux-player>`);
+
+    player.setAttribute('custom-domain', 'example.com');
+    await aTimeout(50);
+
+    const url = new URL(player.media.src);
+    assert.equal(url.hostname, 'stream.example.com', 'domain is applied');
+    assert.equal(url.searchParams.get('foo'), 'str', 'extra-source-params survive');
+    assert.equal(player.media.src, player.media.getAttribute('cast-src'), 'src stays in sync with cast-src');
+  });
+
+  it('should update src when extra-source-params changes at runtime', async function () {
+    const player = await fixture(`<mux-player
+      stream-type="on-demand"
+      custom-domain="mux.com"
+      playback-id="r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA"
+      ></mux-player>`);
+
+    assert.equal(
+      new URL(player.media.src).searchParams.get('redundant_streams'),
+      'true',
+      'starts with the default params'
+    );
+
+    player.setAttribute('extra-source-params', 'foo=str&bar=1');
+    await aTimeout(50);
+
+    const params = new URL(player.media.src).searchParams;
+    assert.equal(params.get('foo'), 'str');
+    assert.equal(params.get('bar'), '1');
+    assert.isNull(params.get('redundant_streams'), 'explicit params replace the default');
+  });
+
+  it('should drop extra-source-params when a playback-token is present', async function () {
+    // By design: these params only apply to public playback ids, so with a signed URL they have
+    // to be signed into the token instead.
+    const player = await fixture(`<mux-player
+      stream-type="on-demand"
+      custom-domain="mux.com"
+      extra-source-params="foo=str"
+      playback-token="TOKEN"
+      playback-id="r4rOE02cc95tbe3I00302nlrHfT023Q3IedFJW029w018KxZA"
+    ></mux-player>`);
+
+    assert.deepEqual([...new URL(player.media.src).searchParams.keys()], ['token'], 'only the token remains');
+  });
+
   describe('buffered behaviors', function () {
     it('should have an empty TimeRanges value by default', async function () {
       const playerEl = await fixture('<mux-player stream-type="on-demand"></mux-player>');

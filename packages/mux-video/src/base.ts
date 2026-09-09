@@ -940,7 +940,11 @@ export class MuxVideoBaseElement extends CustomVideoElement implements IMuxVideo
       case Attributes.ASSET_START_TIME:
       case Attributes.ASSET_END_TIME:
       case Attributes.PLAYBACK_TOKEN:
-        this.src = toMuxVideoURL(this) as string;
+        // If the element does not own playback id, we treat it the src as externally-provided
+        // and we should not modify it.
+        if (this.hasAttribute(Attributes.PLAYBACK_ID)) {
+          this.src = toMuxVideoURL(this) as string;
+        }
         break;
       case Attributes.DEBUG: {
         const debug = this.debug;

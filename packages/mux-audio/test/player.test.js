@@ -131,6 +131,38 @@ describe('<mux-audio>', () => {
       'currentPdt should be ~60 seconds greater than getStartDate'
     );
   });
+
+  describe('src derivation', () => {
+    it('re-derives src from attributes when it owns the playback id', async function () {
+      const player = await fixture(
+        `<mux-audio playback-id="UgKrPYAnjMjP6oMF4Kcs1gWVhtgYDR02EHQGnj022X1Xo" muted></mux-audio>`
+      );
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(new URL(player.src).hostname, 'stream.example.com', 'src follows custom-domain');
+    });
+
+    it('leaves an externally set src alone', async function () {
+      // Same guard as mux-video, but it bites harder here: mux-audio's `playbackId` getter does
+      // not fall back to `toPlaybackIdFromSrc()`, so an externally supplied src yielded no URL at
+      // all and the recompute removed the src outright rather than merely dropping its params.
+      const src = 'https://stream.mux.com/UgKrPYAnjMjP6oMF4Kcs1gWVhtgYDR02EHQGnj022X1Xo.m3u8?redundant_streams=true';
+      const player = await fixture(`<mux-audio custom-domain="mux.com" src="${src}" muted></mux-audio>`);
+
+      assert.equal(player.src, src, 'src survives initial upgrade');
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(player.src, src, 'src survives a custom-domain change');
+    });
+
+    it('leaves a non-Mux src alone', async function () {
+      const src = 'https://my-cdn.example.com/some/playlist.m3u8?sig=abc123';
+      const player = await fixture(`<mux-audio src="${src}" muted></mux-audio>`);
+
+      player.setAttribute('custom-domain', 'example.com');
+      assert.equal(player.src, src, 'src survives a custom-domain change');
+    });
+  });
 });
 
 describe('<mux-audio> disable-cookies', () => {
